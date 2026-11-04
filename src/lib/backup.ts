@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
+import { gameConfig } from "@/db/schema";
 import { tgApi } from "@/lib/telegram";
 
 /**
@@ -7,13 +8,16 @@ import { tgApi } from "@/lib/telegram";
  * the bot runs (no pg_dump binary needed). A backup contains EVERY table row —
  * the assumption is that the Railway account may be gone and this single JSON
  * file must be enough to resurrect the whole bot on a fresh deployment.
+ *
+ * The table list is discovered dynamically from information_schema, so tables added
+ * in future releases are backed up automatically without touching this file.
  */
 
 export const BACKUP_MARKER = "GOPCOIN_BACKUP";
 export const BACKUP_VERSION = 1;
 
-/** Insert order matters only for readability; there are no enforced foreign keys. */
-const TABLES = [
+/** Readability-first ordering; dynamically discovered tables are appended at the end. */
+const PRIORITY = [
   "game_config",
   "users",
   "referrals",
@@ -29,6 +33,20 @@ const TABLES = [
   "broadcast_deliveries",
 ] as const;
 
+type Exec = Pick<typeof db, "execute">;
+
+/** All user tables in the public schema (drizzle's bookkeeping lives in its own schema). */
+export async function listPublicTables(exec: Exec = db): Promise<string[]> {
+  const res = await exec.execute<{ table_name: string }>(sql`
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+    ORDER BY table_name`);
+  const names: string[] = res.rows.map((r) => r.table_name);
+  const known: string[] = PRIORITY.filter((p) => names.includes(p));
+  const extra: string[] = names.filter((n) => !known.includes(n));
+  return [...known, ...extra];
+}
+
 export type Backup = {
   marker: typeof BACKUP_MARKER;
   version: number;
@@ -37,17 +55,18 @@ export type Backup = {
   data: Record<string, Record<string, unknown>[]>;
 };
 
-export async function buildBackup(): Promise<{ backup: Backup; json: string; bytes: number }> {
+export async function buildBackup(): Promise<{ backup: Backup; json: string; bytes: number; tables: string[] }> {
+  const tables = await listPublicTables();
   const data: Record<string, Record<string, unknown>[]> = {};
   const counts: Record<string, number> = {};
-  for (const t of TABLES) {
+  for (const t of tables) {
     const res = await db.execute<Record<string, unknown>>(sql`SELECT * FROM ${sql.identifier(t)} ORDER BY 1`);
     data[t] = res.rows;
     counts[t] = res.rows.length;
   }
   const backup: Backup = { marker: BACKUP_MARKER, version: BACKUP_VERSION, createdAt: new Date().toISOString(), counts, data };
   const json = JSON.stringify(backup);
-  return { backup, json, bytes: Buffer.byteLength(json) };
+  return { backup, json, bytes: Buffer.byteLength(json), tables };
 }
 
 function isBackupObject(v: unknown): v is Backup {
@@ -57,6 +76,7 @@ function isBackupObject(v: unknown): v is Backup {
 }
 
 export function validateBackupJson(text: string): Backup {
+  if (text.length > 512 * 1024 * 1024) throw new Error("File too large for a GOP Coin backup.");
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -64,32 +84,38 @@ export function validateBackupJson(text: string): Backup {
     throw new Error("The file is not valid JSON.");
   }
   if (!isBackupObject(parsed)) throw new Error("This file is not a GOP Coin backup (missing marker).");
-  const missing = TABLES.filter((t) => !Array.isArray((parsed as Backup).data[t]));
-  if (missing.length) throw new Error(`Backup is missing tables: ${missing.join(", ")}`);
   return parsed;
 }
 
-const SERIAL_TABLES = ["users", "referrals", "tasks", "task_claims", "crypto_orders", "account_restrictions", "broadcasts"];
+/** All tables whose "id" column is database-generated (serial/bigserial) — sequences need fixing after restore. */
+async function serialIdTables(exec: Exec): Promise<string[]> {
+  const res = await exec.execute<{ table_name: string }>(sql`
+    SELECT table_name FROM information_schema.columns
+    WHERE table_schema = 'public' AND column_name = 'id' AND column_default LIKE 'nextval%'
+    ORDER BY table_name`);
+  return res.rows.map((r) => r.table_name);
+}
 
 /**
  * Replace the live database with the backup inside ONE transaction:
  * TRUNCATE ... RESTART IDENTITY does not fire the append-only row triggers,
  * sequences are restored, and any failure rolls the whole restore back.
+ * Tables missing from an older backup are restored as empty (forward-compatible).
  */
-export async function restoreBackup(backup: Backup): Promise<Record<string, number>> {
+export async function restoreBackup(backup: Backup): Promise<{ counts: Record<string, number>; skipped: string[] }> {
   return db.transaction(async (tx) => {
-    await tx.execute(sql`TRUNCATE ${sql.join(TABLES.map((t) => sql.identifier(t)), sql`, `)} RESTART IDENTITY CASCADE`);
+    const tables = await listPublicTables(tx);
+    await tx.execute(sql`TRUNCATE ${sql.join(tables.map((t) => sql.identifier(t)), sql`, `)} RESTART IDENTITY CASCADE`);
     const counts: Record<string, number> = {};
-    for (const t of TABLES) {
+    const skipped: string[] = [];
+    for (const t of tables) {
       const rows = backup.data[t] ?? [];
+      if (!Array.isArray(backup.data[t])) skipped.push(t);
       counts[t] = rows.length;
       for (const row of rows) {
         const cols = Object.keys(row).filter((k) => row[k] !== undefined);
         if (cols.length === 0) continue;
-        const values = cols.map((c) => {
-          const v = row[c];
-          return v === null ? null : v;
-        });
+        const values = cols.map((c) => row[c]);
         await tx.execute(
           sql`INSERT INTO ${sql.identifier(t)} (${sql.join(
             cols.map((c) => sql.identifier(c)),
@@ -101,12 +127,13 @@ export async function restoreBackup(backup: Backup): Promise<Record<string, numb
         );
       }
     }
-    for (const t of SERIAL_TABLES) {
+    const serials = (await serialIdTables(tx)).filter((t) => tables.includes(t));
+    for (const t of serials) {
       await tx.execute(
         sql`SELECT setval(pg_get_serial_sequence(${t}, 'id'), GREATEST((SELECT COALESCE(MAX(id), 0) FROM ${sql.identifier(t)}), 1))`,
       );
     }
-    return counts;
+    return { counts, skipped };
   });
 }
 
@@ -137,4 +164,38 @@ export async function downloadTelegramFile(fileId: string): Promise<string> {
   const res = await fetch(`https://api.telegram.org/file/bot${token}/${path}`, { signal: AbortSignal.timeout(60_000) });
   if (!res.ok) throw new Error(`File download failed (${res.status})`);
   return await res.text();
+}
+
+/* --------------------- daily-backup day marker --------------------- */
+
+const MARKER_KEY = "backup_scheduler";
+
+async function lastBackupDay(): Promise<string | null> {
+  const [row] = await db.select().from(gameConfig).where(sql`${gameConfig.key} = ${MARKER_KEY}`).limit(1);
+  const v = row?.value as { day?: string } | null | undefined;
+  return typeof v?.day === "string" ? v.day : null;
+}
+
+async function markBackupSent(day: string): Promise<void> {
+  await db
+    .insert(gameConfig)
+    .values({ key: MARKER_KEY, value: { day }, updatedAt: new Date() })
+    .onConflictDoUpdate({ target: gameConfig.key, set: { value: { day }, updatedAt: new Date() } });
+}
+
+/**
+ * Runs the daily backup at most once per UTC day. Returns true when a backup was sent now.
+ * Used both by the 00:00 UTC timer and the boot catch-up below.
+ */
+export async function runDailyBackupOnce(adminChatId: number, label = "⏰ Daily automatic backup (00:00 UTC)"): Promise<boolean> {
+  const today = new Date().toISOString().slice(0, 10);
+  if ((await lastBackupDay()) === today) return false;
+  const r = await sendBackupDocument(adminChatId, { label });
+  if (!r.ok) {
+    console.error("[backup] daily backup delivery failed", r.description);
+    return false;
+  }
+  await markBackupSent(today);
+  console.log(`[backup] daily backup sent (${(r.bytes / 1024).toFixed(1)} KB)`);
+  return true;
 }

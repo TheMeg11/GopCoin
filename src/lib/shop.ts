@@ -196,26 +196,62 @@ export async function listPendingCryptoOrders(): Promise<(CryptoOrder & { userNa
 }
 
 const BSCSCAN = "https://api.bscscan.com/api";
+const BSC_RPC_URLS = ["https://bsc-dataseed.binance.org", "https://bsc-rpc.publicnode.com", "https://bsc.publicnode.com", "https://rpc-bsc.48.club"];
 
 type BscTx = { ok: boolean; from?: string; to?: string; valueBnb?: number; success?: boolean; error?: string };
 
 /** On-chain check via BscScan (works keyless at low rate; set BSCSCAN_API_KEY for higher limits). */
-export async function fetchTxDetails(txHash: string): Promise<BscTx> {
+async function fetchTxViaBscScan(txHash: string): Promise<BscTx> {
   const key = process.env.BSCSCAN_API_KEY?.trim();
   const url = (action: string) =>
     `${BSCSCAN}?module=proxy&action=${action}&txhash=${txHash}${key ? `&apikey=${encodeURIComponent(key)}` : ""}`;
+  const [txRes, rcRes] = await Promise.all([
+    fetch(url("eth_getTransactionByHash"), { signal: AbortSignal.timeout(10_000) }),
+    fetch(url("eth_getTransactionReceipt"), { signal: AbortSignal.timeout(10_000) }),
+  ]);
+  const tx = (await txRes.json()) as { result?: { from?: string; to?: string; value?: string } | null };
+  const rc = (await rcRes.json()) as { result?: { status?: string } | null };
+  if (!tx.result) return { ok: false, error: "Transaction not found on BNB Smart Chain (yet?) — if you just sent it, wait ~1 minute and try again." };
+  const success = rc.result?.status === "0x1";
+  const valueBnb = tx.result.value ? Number(BigInt(tx.result.value)) / 1e18 : 0;
+  return { ok: true, from: tx.result.from?.toLowerCase(), to: tx.result.to?.toLowerCase(), valueBnb, success };
+}
+
+/** Fallback: query public BSC nodes directly (no key, no rate limit shared with BscScan). */
+async function fetchTxViaRpc(txHash: string): Promise<BscTx> {
+  const body = (method: string) => JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: [txHash] });
+  let lastError: unknown = null;
+  for (const rpcUrl of BSC_RPC_URLS) {
+    try {
+      const [txRes, rcRes] = await Promise.all([
+        fetch(rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: body("eth_getTransactionByHash"), signal: AbortSignal.timeout(8_000) }),
+        fetch(rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: body("eth_getTransactionReceipt"), signal: AbortSignal.timeout(8_000) }),
+      ]);
+      if (!txRes.ok || !rcRes.ok) throw new Error(`http ${txRes.status}/${rcRes.status}`);
+      const tx = (await txRes.json()) as { result?: { from?: string; to?: string; value?: string } | null };
+      const rc = (await rcRes.json()) as { result?: { status?: string } | null };
+      if (!tx.result) return { ok: false, error: "Transaction not found on BNB Smart Chain (yet?) — if you just sent it, wait ~1 minute and try again." };
+      const success = rc.result?.status === "0x1";
+      const valueBnb = tx.result.value ? Number(BigInt(tx.result.value)) / 1e18 : 0;
+      return { ok: true, from: tx.result.from?.toLowerCase(), to: tx.result.to?.toLowerCase(), valueBnb, success };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  return { ok: false, error: lastError instanceof Error ? lastError.message : "all BSC RPC nodes failed" };
+}
+
+/** BscScan first, public RPC fallback — one of them must answer for the admin to verify. */
+export async function fetchTxDetails(txHash: string): Promise<BscTx> {
   try {
-    const [txRes, rcRes] = await Promise.all([
-      fetch(url("eth_getTransactionByHash"), { signal: AbortSignal.timeout(10_000) }),
-      fetch(url("eth_getTransactionReceipt"), { signal: AbortSignal.timeout(10_000) }),
-    ]);
-    const tx = (await txRes.json()) as { result?: { from?: string; to?: string; value?: string } | null };
-    const rc = (await rcRes.json()) as { result?: { status?: string } | null };
-    if (!tx.result) return { ok: false, error: "Transaction not found on BNB Smart Chain (yet?) — if you just sent it, wait ~1 minute and try again." };
-    const success = rc.result?.status === "0x1";
-    const valueBnb = tx.result.value ? Number(BigInt(tx.result.value)) / 1e18 : 0;
-    return { ok: true, from: tx.result.from?.toLowerCase(), to: tx.result.to?.toLowerCase(), valueBnb, success };
+    const viaScan = await fetchTxViaBscScan(txHash);
+    // A not-found answer may be a BscScan hiccup — try the RPC path before giving up.
+    if (viaScan.ok) return viaScan;
+    const viaRpc = await fetchTxViaRpc(txHash);
+    return viaRpc.ok ? viaRpc : viaScan;
   } catch (e) {
+    const viaRpc = await fetchTxViaRpc(txHash);
+    if (viaRpc.ok) return viaRpc;
     return { ok: false, error: e instanceof Error ? e.message : "BscScan request failed" };
   }
 }

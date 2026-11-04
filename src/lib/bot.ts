@@ -6,7 +6,7 @@ import { botUsername, referralLinks, webAppUrl, webhookSecret } from "@/lib/env"
 import { parseReferralParam, tgApi, type TelegramUser } from "@/lib/telegram";
 import { buildMineState, checkIn, MILLI } from "@/lib/mine";
 import { findStarsPackage, decideCryptoOrder, fetchTxDetails, listPendingCryptoOrders, escapeHtml } from "@/lib/shop";
-import { downloadTelegramFile, restoreBackup, sendBackupDocument, validateBackupJson } from "@/lib/backup";
+import { downloadTelegramFile, restoreBackup, runDailyBackupOnce, sendBackupDocument, validateBackupJson } from "@/lib/backup";
 import { isAdminTelegramId } from "@/lib/env";
 import { upsertTelegramUser } from "@/lib/users";
 
@@ -69,6 +69,12 @@ async function replyPhoto(chatId: number, photoUrl: string | null, caption: stri
 function appLogo(): string | null {
   const url = webAppUrl();
   return url ? `${url}/art/icon.png` : null;
+}
+
+/** Branded invite card (logo + game art) — the thing users forward to friends. */
+function inviteCard(): string | null {
+  const url = webAppUrl();
+  return url ? `${url}/art/invite.png` : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -159,7 +165,7 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
       const appRow: InlineKeyboard["inline_keyboard"] = webAppUrl() ? [[{ text: "⛏ Open my mine", web_app: { url: webAppUrl() } }]] : [];
       await replyPhoto(
         msg.chat.id,
-        appLogo(),
+        inviteCard() ?? appLogo(),
         `👥 <b>Invite friends, both win!</b>\n\nYou get <b>+${cfg.referral.inviterReward} GOP</b> and your friend gets <b>+${cfg.referral.inviteeReward} GOP</b> once they run their first check-in.\n\nActivated friends: <b>${user.referralCount}</b>\nEarned from referrals: <b>${fmtGop(user.referralEarned / MILLI)} GOP</b>\n\n👇 Share this — the more goblins in your crew, the richer the mine:\n<code>${link}</code>`,
         { inline_keyboard: [[{ text: "📤 Share invite", url: shareUrl(link, cfg.referral.inviteeReward) }], ...appRow] },
       );
@@ -172,6 +178,9 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
       return void (await adminBackup(msg.from.id, msg.chat.id));
     case "/restore":
       return void (await adminRestoreArm(msg.from.id, msg.chat.id));
+    case "/restore_cancel":
+      if (restoreArmed.delete(msg.from.id)) await reply(msg.chat.id, "Restore cancelled. Nothing was changed.");
+      return;
     case "/orders":
       return void (await adminListOrders(msg.from.id, msg.chat.id));
     case "/help":
@@ -311,9 +320,10 @@ async function handleDocument(tgId: number, chatId: number, doc: NonNullable<TgU
       return;
     }
     await reply(chatId, `✅ Backup verified (created ${backup.createdAt}). Safety backup sent above.\n⏳ Restoring…`);
-    const counts = await restoreBackup(backup);
+    const { counts, skipped } = await restoreBackup(backup);
     const summary = Object.entries(counts).filter(([, n]) => n > 0).map(([t, n]) => `${t}: ${n}`).join(", ") || "empty database";
-    await reply(chatId, `✅ <b>Restore complete</b>\n\n${summary}\n\nAll sessions remain valid. The bot is now running on the restored data.`);
+    const skippedNote = skipped.length ? `\n⚠️ Tables not present in the backup were left empty: ${skipped.join(", ")}` : "";
+    await reply(chatId, `✅ <b>Restore complete</b>\n\n${summary}${skippedNote}\n\nAll sessions remain valid. The bot is now running on the restored data.`);
   } catch (e) {
     await reply(chatId, `❌ Restore failed: ${e instanceof Error ? e.message : "unknown error"}\n\nThe current database was NOT modified.`);
   }
@@ -533,7 +543,9 @@ export async function setupBot() {
 
 let backupTimerStarted = false;
 
-/** Daily full backup to the admin's private chat at 00:00 UTC. */
+/** Daily full backup to the admin's private chat at 00:00 UTC.
+ * A boot catch-up covers restarts that land on the scheduled moment (deploys restart the
+ * container), and a persisted day-marker (game_config) guarantees at-most-once per UTC day. */
 export function startDailyBackup() {
   if (backupTimerStarted || process.env.DISABLE_AUTO_BACKUP === "true") return;
   if (!process.env.BOT_TOKEN) return;
@@ -543,6 +555,7 @@ export function startDailyBackup() {
     return;
   }
   backupTimerStarted = true;
+  const adminChatId = Number(adminRaw);
   const schedule = () => {
     const now = new Date();
     const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 5));
@@ -551,9 +564,7 @@ export function startDailyBackup() {
   let timer: NodeJS.Timeout;
   const run = async () => {
     try {
-      const r = await sendBackupDocument(Number(adminRaw), { label: "⏰ Daily automatic backup (00:00 UTC)" });
-      if (!r.ok) console.error("[backup] daily backup delivery failed", r.description);
-      else console.log(`[backup] daily backup sent (${(r.bytes / 1024).toFixed(1)} KB)`);
+      await runDailyBackupOnce(adminChatId);
     } catch (e) {
       console.error("[backup] daily backup failed", e);
     } finally {
@@ -561,7 +572,11 @@ export function startDailyBackup() {
       timer.unref?.();
     }
   };
+  // Boot catch-up: if 00:00:05 UTC already passed today and nothing was sent, send right now.
+  void runDailyBackupOnce(adminChatId)
+    .then((sent) => sent && console.log("[backup] boot catch-up backup sent"))
+    .catch((e) => console.error("[backup] boot catch-up failed", e));
   timer = setTimeout(run, schedule());
   timer.unref?.();
-  console.log("[backup] daily auto-backup scheduled at 00:00 UTC");
+  console.log("[backup] daily auto-backup scheduled at 00:00 UTC (with boot catch-up)");
 }

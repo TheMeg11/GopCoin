@@ -36,6 +36,10 @@ base mining 0.5 GOP/h, daily cap 500 GOP (both upgradable), invite reward 50 GOP
 3. **Deploy:** Railway builds with `npm ci && npm run build`, runs migrations
    (`node scripts/migrate.mjs` as pre-deploy), then starts `npm run start`.
    Healthcheck: `/api/health`.
+   - The pre-deploy runner is **self-healing**: if it finds a database from an older schema
+     generation (or a journal mismatch), it snapshots EVERY existing row, tries to send that
+     snapshot to the admin via Telegram, then rebuilds the schema from the current migrations
+     and migrates. Fresh databases just migrate normally.
 4. On boot the app **auto-registers the webhook, commands and menu button** (needs `WEBAPP_URL`
    to be set). No manual setup needed; the admin panel also has a setup button.
 5. **Channel task:** add the bot as an **admin** to `@GOPCOININFO` so the join-task can verify
@@ -50,7 +54,9 @@ base mining 0.5 GOP/h, daily cap 500 GOP (both upgradable), invite reward 50 GOP
 | `/ORDERS` | lists pending crypto orders with on-chain verify / approve / reject buttons |
 
 **Daily backup:** every day at 00:00 UTC the bot automatically sends the admin a full backup
-document — no command needed. (`DISABLE_AUTO_BACKUP=true` to opt out.)
+document — no command needed. A persisted day-marker guarantees at-most-once per UTC day, and a
+boot catch-up sends the backup immediately if a restart landed on the scheduled moment.
+(`DISABLE_AUTO_BACKUP=true` to opt out.)
 
 The web admin panel (in-app for the admin id) covers config, users, tasks, broadcasts, audit.
 
