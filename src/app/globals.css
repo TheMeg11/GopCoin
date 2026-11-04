@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+@theme {
+  --color-forest-950: #070b09;
+  --color-forest-900: #0c120f;
+  --color-forest-850: #111915;
+  --color-forest-800: #16211b;
+  --color-forest-700: #1e2d24;
+  --color-forest-600: #2a3f32;
+  --color-goblin: #5fd068;
+  --color-goblin-dim: #3e9b48;
+  --color-gold-300: #ffe29a;
+  --color-gold-400: #ffd166;
+  --color-gold-500: #f5b83d;
+  --color-gold-600: #d9951b;
+  --color-amber-glow: #ff9f1c;
+  --font-display: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+:root {
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px));
+  --content-top: var(--tg-content-safe-area-inset-top, 0px);
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #070b09;
+  color: #eef5ef;
+  font-family: var(--font-display);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+.bg-app {
+  background:
+    radial-gradient(ellipse 80% 45% at 50% 0%, rgba(95, 208, 104, 0.10), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 50% 100%, rgba(245, 184, 61, 0.06), transparent 70%),
+    #070b09;
+}
+
+.card {
+  background: linear-gradient(180deg, rgba(30, 45, 36, 0.72), rgba(17, 25, 21, 0.86));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 10px 30px -12px rgba(0, 0, 0, 0.6);
+}
+
+.gold-text {
+  background: linear-gradient(180deg, #fff1c4 0%, #ffd166 45%, #e09b1f 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.btn-gold {
+  background: linear-gradient(180deg, #ffdb7a 0%, #f5b83d 55%, #d9951b 100%);
+  color: #2a1a00;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset, 0 8px 20px -8px rgba(245, 184, 61, 0.65);
+}
+.btn-gold:active { transform: translateY(1px) scale(0.99); }
+
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.btn-ghost:active { background: rgba(255, 255, 255, 0.1); }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* Coin interaction */
+.coin-wrap { perspective: 900px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.coin { transition: transform 90ms ease-out, filter 200ms; will-change: transform; }
+.coin-glow {
+  background: radial-gradient(circle, rgba(255, 209, 102, 0.35) 0%, rgba(255, 159, 28, 0.12) 40%, transparent 70%);
+  animation: pulse-glow 3.2s ease-in-out infinite;
+}
+@keyframes pulse-glow { 0%, 100% { opacity: 0.7; transform: scale(1); } 50% { opacity: 1; transform: scale(1.04); } }
+
+/* Idle mining animation: the coin breathes while the mine is running */
+.coin-idle { animation: mine-breathe 3.6s ease-in-out infinite; }
+@keyframes mine-breathe {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.035) rotate(1.2deg); }
+}
+
+.float-plus { animation: float-up 900ms ease-out forwards; pointer-events: none; }
+@keyframes float-up {
+  0% { opacity: 0; transform: translate(-50%, -30%) scale(0.7); }
+  15% { opacity: 1; transform: translate(-50%, -70%) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -260%) scale(1); }
+}
+.particle { animation: particle 650ms ease-out forwards; pointer-events: none; }
+@keyframes particle {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.3); }
+}
+
+.page-enter { animation: page-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes page-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.sheet-enter { animation: sheet-in 300ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes sheet-in { from { transform: translateY(100%); } to { transform: none; } }
+.fade-in { animation: fade 200ms ease-out; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+.toast-enter { animation: toast-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-12px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+.evolve-in { animation: evolve 900ms cubic-bezier(0.2, 1.4, 0.4, 1); }
+@keyframes evolve {
+  0% { transform: scale(0.3) rotate(-8deg); filter: brightness(3) saturate(0); opacity: 0; }
+  60% { transform: scale(1.08) rotate(2deg); filter: brightness(1.4); opacity: 1; }
+  100% { transform: scale(1); filter: none; }
+}
+.rays { background: conic-gradient(from 0deg, transparent 0 10deg, rgba(255,209,102,0.18) 10deg 20deg, transparent 20deg 40deg, rgba(255,209,102,0.18) 40deg 50deg, transparent 50deg 70deg, rgba(255,209,102,0.18) 70deg 80deg, transparent 80deg 100deg, rgba(255,209,102,0.18) 100deg 110deg, transparent 110deg 130deg, rgba(255,209,102,0.18) 130deg 140deg, transparent 140deg 160deg, rgba(255,209,102,0.18) 160deg 170deg, transparent 170deg 190deg, rgba(255,209,102,0.18) 190deg 200deg, transparent 200deg 220deg, rgba(255,209,102,0.18) 220deg 230deg, transparent 230deg 250deg, rgba(255,209,102,0.18) 250deg 260deg, transparent 260deg 280deg, rgba(255,209,102,0.18) 280deg 290deg, transparent 290deg 310deg, rgba(255,209,102,0.18) 310deg 320deg, transparent 320deg 340deg, rgba(255,209,102,0.18) 340deg 350deg, transparent 350deg); animation: spin 14s linear infinite; mask-image: radial-gradient(circle, #000 30%, transparent 70%); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.goblin-art { mask-image: radial-gradient(circle at 50% 50%, #000 52%, transparent 71%); -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 52%, transparent 71%); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  .float-plus { animation: none; opacity: 0; }
+  .particle { display: none; }
+}
