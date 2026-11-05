@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { cryptoOrders, users, type CryptoOrder, type User } from "@/db/schema";
-import { MILLI } from "@/lib/mine";
+import { MILLI } from "@/db/schema";
 import { getConfig, type GameConfig } from "@/lib/config";
 import { ApiError } from "@/lib/http";
 import { creditCoins, grantXp, type Tx } from "@/lib/ledger";
@@ -22,12 +22,20 @@ export type UpgradeView = {
   currentValue: number; // current speed GOP/h or current cap GOP
   nextValue: number | null;
   price: number | null; // whole GOP to burn, null = maxed
+  /** false when the upgrade exists but must not be sold yet (ordering rule). */
+  purchasable: boolean;
+  /** Human hint shown when purchasable === false. */
+  lockedReason: string | null;
 };
 
 export function upgradeView(u: Pick<User, "mineSpeedTier" | "mineLimitTier">, cfg: GameConfig, kind: UpgradeKind): UpgradeView {
   if (kind === "speed") {
     const tier = u.mineSpeedTier;
     const max = cfg.mine.speedTiers.length - 1;
+    // Ordering rule: the NEXT speed tier's full output (speedTiers[tier+1] × 24h) must fit
+    // under the user's daily cap, otherwise the extra speed would earn nothing. Requiring
+    // the matching capacity upgrade first keeps every purchase meaningful (no trap buys).
+    const capOk = u.mineLimitTier > tier;
     return {
       kind,
       tier,
@@ -35,6 +43,8 @@ export function upgradeView(u: Pick<User, "mineSpeedTier" | "mineLimitTier">, cf
       currentValue: cfg.mine.speedTiers[Math.min(tier, max)],
       nextValue: tier < max ? cfg.mine.speedTiers[tier + 1] : null,
       price: tier < max ? cfg.mine.speedPrices[tier] : null,
+      purchasable: tier < max && capOk,
+      lockedReason: tier < max && !capOk ? "Upgrade your daily capacity first to unlock the next speed tier" : null,
     };
   }
   const tier = u.mineLimitTier;
@@ -46,6 +56,8 @@ export function upgradeView(u: Pick<User, "mineSpeedTier" | "mineLimitTier">, cf
     currentValue: cfg.mine.limitTiers[Math.min(tier, max)],
     nextValue: tier < max ? cfg.mine.limitTiers[tier + 1] : null,
     price: tier < max ? cfg.mine.limitPrices[tier] : null,
+    purchasable: tier < max,
+    lockedReason: null,
   };
 }
 
@@ -57,6 +69,7 @@ export async function purchaseUpgrade(o: { userId: number; kind: UpgradeKind; cf
     if (!u) throw new ApiError(404, "USER_NOT_FOUND");
     const view = upgradeView(u, cfg, o.kind);
     if (view.price === null || view.nextValue === null) throw new ApiError(400, "ALREADY_MAXED", "This upgrade is already at the highest tier");
+    if (!view.purchasable) throw new ApiError(400, "CAPACITY_FIRST", view.lockedReason ?? "Upgrade not available yet");
     const priceMilli = view.price * MILLI;
     if (u.balance < priceMilli) throw new ApiError(400, "INSUFFICIENT_FUNDS", `You need ${view.price.toLocaleString("en-US")} GOP for this upgrade`);
 

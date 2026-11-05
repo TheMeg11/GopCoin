@@ -205,12 +205,12 @@ export function ConfigSection() {
       <Panel title="Mining">
         <Grid>
           <Tog p="mine.enabled" label="Mining enabled" />
-          <Float p="mine.shutdownHours" label="Hours until the mine shuts down" hint="Users must check in within this window" />
+          <Float p="mine.shutdownHours" label="Hours until the mine shuts down" hint="0 = mine runs 24/7 (recommended); otherwise users must check in within this window" />
         </Grid>
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
           {jf("speedTiers", "Speed tiers (GOP/hour, strictly increasing JSON array)")}
-          {jf("speedPrices", "Speed upgrade prices (GOP burned, tiers.length − 1)")}
-          {jf("limitTiers", "Daily cap tiers (GOP/day, strictly increasing)")}
+          {jf("speedPrices", "Speed upgrade prices (GOP burned, tiers.length − 1; speed needs the matching capacity tier first)")}
+          {jf("limitTiers", "Daily cap tiers (GOP/day; tier i ≈ speed tier i × 24 keeps both ladders meaningful)")}
           {jf("limitPrices", "Cap upgrade prices (GOP burned)")}
         </div>
       </Panel>
@@ -226,7 +226,7 @@ export function ConfigSection() {
       </Panel>
       <Panel title="Goblin XP">
         <Grid>
-          <Num p="xp.perCheckin" label="XP per check-in" />
+          <Num p="xp.perCheckin" label="XP per collect (max once per 6h bucket)" />
           <Num p="xp.perReferral" label="XP per activated referral" />
           <Num p="xp.perWelcome" label="XP for welcome bonus" />
         </Grid>

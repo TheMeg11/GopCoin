@@ -113,7 +113,7 @@ function AppInner() {
           const m = await refresh();
           if (m) {
             setPhase({ kind: "ready" });
-            if (r.created && m.user.invitedBy) toast(`Welcome! Check in once to unlock your +${m.rules.inviteeReward} GOP bonus 🎁`, "success");
+            if (r.created && m.user.invitedBy) toast(`Welcome! Collect once to unlock your +${m.rules.inviteeReward} GOP bonus 🎁`, "success");
           }
           return;
         }
@@ -173,7 +173,7 @@ function AppInner() {
           <CoinIcon size={30} />
           <div className="leading-none">
             <div className="text-[17px] font-black tracking-wide"><span className="text-goblin">GOP</span> <span className="gold-text">COIN</span></div>
-            <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">Mine · Check in · Evolve</div>
+            <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">Mine · Collect · Evolve</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -247,7 +247,7 @@ function BootScreen({ phase, onDemo }: { phase: Phase; onDemo: (as: "player" | "
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/art/coin.webp" alt="Gop Coin" width={150} height={150} className={phase.kind === "loading" ? "animate-pulse" : ""} />
       <h1 className="mt-5 text-3xl font-black"><span className="text-goblin">GOP</span> <span className="gold-text">COIN</span></h1>
-      <p className="mt-2 max-w-xs text-sm text-white/50">Mine coins automatically — check in every 6 hours to keep your goblin mine running.</p>
+      <p className="mt-2 max-w-xs text-sm text-white/50">Mine coins automatically — your goblin digs 24/7, and you collect whenever you like.</p>
       {phase.kind === "loading" && (
         <div className="mt-6 w-full space-y-2">
           <Skeleton className="mx-auto h-4 w-40" />

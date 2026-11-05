@@ -38,7 +38,7 @@ export function fmtGop(n: number): string {
 const CHANNEL_URL = "https://t.me/GOPCOININFO";
 
 function shareText(link: string, inviteeReward: number): string {
-  return `⛏ Dig with me in GOP COIN — the goblin mining game!\n\n🪙 Your mine produces coins 24/7 — you only check in every 6 hours to keep it running\n⬆️ Upgrade your pickaxe speed & daily capacity\n👥 +${inviteeReward} GOP welcome bonus when you join with my link\n\n👉 ${link}`;
+  return `⛏ Dig with me in GOP COIN — the goblin mining game!\n\n🪙 Your mine produces coins 24/7 — collect any time, no timers to race\n⬆️ Upgrade your pickaxe speed & daily capacity\n👥 +${inviteeReward} GOP welcome bonus when you join with my link\n\n👉 ${link}`;
 }
 
 function shareUrl(link: string, inviteeReward: number): string {
@@ -119,12 +119,12 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
       msg.chat.id,
       appLogo(),
       `<b>Welcome to GOP COIN, ${escapeHtml(msg.from.first_name)}!</b> 🪙⛏\n\n` +
-        `Your goblin mine <b>already started digging</b>: it produces <b>${mine.speedGop} GOP/hour</b> around the clock — you only have to check in once every <b>${cfg.mine.shutdownHours} hours</b> to keep it running. Miss the window and the mine shuts down until you restart it.\n\n` +
-        `🪙 Daily mining capacity: <b>${fmtGop(mine.dailyLimit)} GOP</b>\n` +
-        `⬆️ Upgrade speed & capacity in the Goblin menu\n` +
+        `Your goblin mine <b>already started digging</b>: it produces <b>${mine.speedGop} GOP/hour</b> around the clock — ${cfg.mine.shutdownHours > 0 ? `check in once every <b>${cfg.mine.shutdownHours} hours</b> to keep it running` : `it runs <b>24/7</b>, and you collect whenever you like`}\n\n` +
+        `🪙 Daily mining capacity: <b>${fmtGop(mine.dailyLimit)} GOP</b> (resets 00:00 UTC)\n` +
+        `⬆️ Upgrade capacity & speed in the Goblin menu\n` +
         `👥 Invite friends: <b>+${cfg.referral.inviterReward} GOP</b> each\n` +
         `💰 Need coins fast? Buy GOP with Telegram Stars or BNB\n` +
-        (invited ? `\n🎁 You were invited by a friend! Check in once to unlock your <b>+${cfg.referral.inviteeReward} GOP</b> welcome bonus.\n` : "") +
+        (invited ? `\n🎁 You were invited by a friend! Collect once to unlock your <b>+${cfg.referral.inviteeReward} GOP</b> welcome bonus.\n` : "") +
         `\n📢 News & updates: ${CHANNEL_URL}`,
       mainKeyboard(link, cfg.referral.inviteeReward),
     );
@@ -166,7 +166,7 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
       await replyPhoto(
         msg.chat.id,
         inviteCard() ?? appLogo(),
-        `👥 <b>Invite friends, both win!</b>\n\nYou get <b>+${cfg.referral.inviterReward} GOP</b> and your friend gets <b>+${cfg.referral.inviteeReward} GOP</b> once they run their first check-in.\n\nActivated friends: <b>${user.referralCount}</b>\nEarned from referrals: <b>${fmtGop(user.referralEarned / MILLI)} GOP</b>\n\n👇 Share this — the more goblins in your crew, the richer the mine:\n<code>${link}</code>`,
+        `👥 <b>Invite friends, both win!</b>\n\nYou get <b>+${cfg.referral.inviterReward} GOP</b> and your friend gets <b>+${cfg.referral.inviteeReward} GOP</b> once they collect their first coins.\n\nActivated friends: <b>${user.referralCount}</b>\nEarned from referrals: <b>${fmtGop(user.referralEarned / MILLI)} GOP</b>\n\n👇 Share this — the more goblins in your crew, the richer the mine:\n<code>${link}</code>`,
         { inline_keyboard: [[{ text: "📤 Share invite", url: shareUrl(link, cfg.referral.inviteeReward) }], ...appRow] },
       );
       break;
@@ -187,12 +187,12 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
       await reply(
         msg.chat.id,
         `<b>How GOP Coin works</b> ⛏\n\n` +
-          `• Your mine produces <b>${cfg.mine.speedTiers[0]} GOP</b> every hour, automatically\n` +
-          `• Check in at least every <b>${cfg.mine.shutdownHours}h</b> or the mine shuts down\n` +
-          `• Daily mining capacity: <b>${fmtGop(cfg.mine.limitTiers[0])}+ GOP</b> (upgradable)\n` +
-          `• Upgrade speed & capacity in the Goblin menu — upgrades burn coins and make the mine stronger\n` +
+          `• Your mine produces <b>${cfg.mine.speedTiers[0]} GOP</b> every hour, automatically ${cfg.mine.shutdownHours === 0 ? "— 24/7, even while the app is closed" : ""}\n` +
+          (cfg.mine.shutdownHours > 0 ? `• Check in at least every <b>${cfg.mine.shutdownHours}h</b> or the mine shuts down\n` : "") +
+          `• Daily mining capacity: <b>${fmtGop(cfg.mine.limitTiers[0])}+ GOP</b> (upgradable — capacity unlocks the next speed tier)\n` +
+          `• Upgrade capacity & speed in the Goblin menu — upgrades burn coins and make the mine stronger\n` +
           `• Invite friends: +${cfg.referral.inviterReward} GOP each · buy GOP with Stars or BNB\n` +
-          `• XP from every check-in levels your goblin from Baby to King\n\n` +
+          `• XP from collecting levels your goblin from Baby to King\n\n` +
           `Commands: /mine /balance /buy /invite /channel`,
         mainKeyboard(referralLinks(user?.referralCode ?? "").primary, cfg.referral.inviteeReward),
       );
@@ -208,13 +208,16 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
 
 async function sendMineStatus(chatId: number, user: typeof users.$inferSelect, cfg: Awaited<ReturnType<typeof getConfig>>) {
   const mine = buildMineState(user, cfg);
-  const status = mine.on
-    ? `⛏ <b>Your mine is running</b> — ${mine.speedGop} GOP/h\n⏱ Shuts down in <b>${formatDuration(mine.shutdownInMs ?? 0)}</b> unless you check in`
-    : `💤 <b>Your mine is OFF</b> — you missed the ${cfg.mine.shutdownHours}h check-in window.\nCheck in now to restart production!`;
+  const alwaysOn = cfg.mine.shutdownHours <= 0;
+  const status = alwaysOn
+    ? `⛏ <b>Your mine is running 24/7</b> — ${mine.speedGop} GOP/h\n🪙 It keeps digging even while the app is closed`
+    : mine.on
+      ? `⛏ <b>Your mine is running</b> — ${mine.speedGop} GOP/h\n⏱ Shuts down in <b>${formatDuration(mine.shutdownInMs ?? 0)}</b> unless you check in`
+      : `💤 <b>Your mine is OFF</b> — you missed the ${cfg.mine.shutdownHours}h check-in window.\nCheck in now to restart production!`;
   await reply(
     chatId,
-    `${status}\n\n💰 Balance: <b>${fmtGop(user.balance / MILLI)} GOP</b>\n🪙 Ready to collect: <b>${fmtGop(mine.pendingGop)} GOP</b>\n📅 Today: ${fmtGop(mine.minedToday)} / ${fmtGop(mine.dailyLimit)} GOP\n\nCheck in every ${cfg.mine.shutdownHours}h to keep the mine alive!`,
-    { inline_keyboard: [[{ text: "⛏ CHECK IN & COLLECT", callback_data: "checkin" }], [{ text: "🎮 Open Mine", web_app: { url: webAppUrl() } }].filter((b) => "web_app" in b)] },
+    `${status}\n\n💰 Balance: <b>${fmtGop(user.balance / MILLI)} GOP</b>\n🪙 Ready to collect: <b>${fmtGop(mine.pendingGop)} GOP</b>\n📅 Today: ${fmtGop(mine.minedToday)} / ${fmtGop(mine.dailyLimit)} GOP\n\n${alwaysOn ? "Collect any time — the daily quota resets at 00:00 UTC." : `Check in every ${cfg.mine.shutdownHours}h to keep the mine alive!`}`,
+    { inline_keyboard: [[{ text: "⛏ COLLECT NOW", callback_data: "checkin" }], [{ text: "🎮 Open Mine", web_app: { url: webAppUrl() } }].filter((b) => "web_app" in b)] },
   );
 }
 
@@ -518,7 +521,7 @@ export async function setupBot() {
   const commands = await tgApi("setMyCommands", {
     commands: [
       { command: "start", description: "Start GOP Coin" },
-      { command: "mine", description: "Mine status & check-in" },
+      { command: "mine", description: "Mine status & collect" },
       { command: "balance", description: "Show your balance" },
       { command: "buy", description: "Buy GOP (Stars / BNB)" },
       { command: "invite", description: "Invite friends +50 GOP" },

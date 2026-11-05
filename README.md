@@ -1,11 +1,12 @@
 # GOP Coin ⛏
 
-A Telegram Mini App + bot where goblins **mine GOP coins automatically**. Players check in every
-6 hours to keep their mine running, upgrade speed & daily capacity in the Goblin menu, invite
-friends, complete tasks — and can buy GOP with **Telegram Stars** or **BNB (BEP-20)**.
+A Telegram Mini App + bot where goblins **mine GOP coins automatically, 24/7** — even while the
+app is closed. Players collect their mined coins any time (no mandatory check-in), upgrade daily
+capacity & speed in the Goblin menu (capacity unlocks the next speed tier), invite friends,
+complete tasks — and can buy GOP with **Telegram Stars** or **BNB (BEP-20)**.
 
 The economy is fully documented in [ECONOMY.md](./ECONOMY.md) — 1 GOP ≈ 1 ⭐ ≈ $0.01 (design anchor),
-base mining 0.5 GOP/h, daily cap 500 GOP (both upgradable), invite reward 50 GOP.
+base mining 0.5 GOP/h → 12 GOP/day (both upgradable to 768 GOP/day), invite reward 50 GOP.
 
 ## Stack & architecture
 

@@ -26,8 +26,8 @@ export const configSchema = z
   .object({
     mine: z.object({
       enabled: z.boolean(),
-      /** Hours a mine keeps running after the last check-in. */
-      shutdownHours: z.number().min(0.5).max(72),
+      /** Hours a mine keeps running after the last check-in. 0 = runs 24/7 (no shutdown). */
+      shutdownHours: z.number().min(0).max(72),
       /** GOP/hour per tier. Tier 0 is the starting speed. Max 12 tiers. */
       speedTiers: z.array(speed).min(1).max(12),
       /** Burn price (GOP) to move from tier i to i+1; length = speedTiers.length - 1. */
@@ -108,18 +108,23 @@ export const configSchema = z
 export type GameConfig = z.infer<typeof configSchema>;
 
 /**
- * DEFAULT economy — derived from ECONOMY.md (1 GOP ≈ 1 ⭐ ≈ $0.01 anchor).
- * Speed tiers ×2, caps ×2; burn prices keep a 6–13 day payback; Stars 1:1 with
- * small bulk discounts; crypto priced at a 10% premium over the anchor + 3% buffer.
+ * DEFAULT economy — v3, derived from ECONOMY.md (1 GOP ≈ 1 ⭐ ≈ $0.01 anchor).
+ *
+ * v3 changes (audited + simulated over 30/90/180 days, see ECONOMY.md §2–3):
+ * - shutdownHours 0: the mine runs 24/7 — no more mandatory 6h check-in.
+ * - Daily-cap ladder is BINDING: cap tier i = speed tier i × 24h, so capacity
+ *   upgrades genuinely gate income and must precede the matching speed upgrade.
+ * - Prices rebalanced so the payback of a (speed+capacity) pair stays in the
+ *   classic idle-game band of 8–13 days of the EXTRA production it unlocks.
  */
 export const DEFAULT_CONFIG: GameConfig = {
   mine: {
     enabled: true,
-    shutdownHours: 6,
+    shutdownHours: 0, // 0 = mine runs 24/7 — collecting is optional, never a race against a timer
     speedTiers: [0.5, 1, 2, 4, 8, 16, 32],
-    speedPrices: [150, 350, 800, 1800, 4200, 10000],
-    limitTiers: [500, 1000, 2000, 4000, 8000, 16000, 32000],
-    limitPrices: [120, 300, 700, 1600, 3800, 9000],
+    speedPrices: [60, 130, 280, 600, 1300, 2800],
+    limitTiers: [12, 24, 48, 96, 192, 384, 768],
+    limitPrices: [40, 90, 200, 450, 1000, 2200],
   },
   referral: { enabled: true, inviterReward: 50, inviteeReward: 25, activationCheckins: 1, maxNewReferralsPerHour: 30, campaignNote: "" },
   xp: { perCheckin: 15, perReferral: 200, perWelcome: 0 },
@@ -143,14 +148,16 @@ export const DEFAULT_CONFIG: GameConfig = {
       network: "BNB Smart Chain (BEP-20)",
       assetSymbol: "BNB",
       address: "0x812Dfa18C02905D7011FbCB09120E68De1f07AA3",
+      // v3 audit: bulk packs used to dip BELOW the anchor ($0.009–0.0095/GOP); all packages
+      // now hold the $0.011 crypto price point so buying never undercuts the coin's value.
       usdPerGop: 0.011,
       bnbUsd: 600,
       bufferPercent: 3,
       packages: [
         { id: "c1000", gop: 1000, usd: 11 },
-        { id: "c3000", gop: 3000, usd: 30 },
-        { id: "c10000", gop: 10000, usd: 95 },
-        { id: "c30000", gop: 30000, usd: 270 },
+        { id: "c3000", gop: 3000, usd: 33 },
+        { id: "c10000", gop: 10000, usd: 110 },
+        { id: "c30000", gop: 30000, usd: 330 },
       ],
     },
   },

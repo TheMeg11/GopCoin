@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { api, copyText, fmt, fmtGop, haptic, openBotDeepLink, type MeState, type MineState, type StageDef } from "./client";
+import { api, copyText, fmt, fmtGop, haptic, openBotDeepLink, type MeState, type MineState, type StageDef, type UpgradeView } from "./client";
 import { CoinIcon, Icon, ProgressBar, useToast } from "./ui";
 
 export function stageFor(level: number, stages: StageDef[]) {
@@ -58,16 +58,7 @@ export function GoblinPage({ me, mine, xp, level, onPurchased, onRefresh }: {
     }
   };
 
-  // Full tier ladders ship with /api/me so prices stay server-authoritative.
-  const speedTiers = me.mineTierData?.speedTiers ?? [];
-  const speedPrices = me.mineTierData?.speedPrices ?? [];
-  const limitTiers = me.mineTierData?.limitTiers ?? [];
-  const limitPrices = me.mineTierData?.limitPrices ?? [];
-
-  const nextSpeed = mine.speedTier < speedTiers.length - 1 ? speedTiers[mine.speedTier + 1] : null;
-  const nextSpeedPrice = mine.speedTier < speedPrices.length ? speedPrices[mine.speedTier] : null;
-  const nextLimit = mine.limitTier < limitTiers.length - 1 ? limitTiers[mine.limitTier + 1] : null;
-  const nextLimitPrice = mine.limitTier < limitPrices.length ? limitPrices[mine.limitTier] : null;
+  // Server-authoritative upgrade availability (includes the capacity-first ordering rule).
   const balance = me.user.balance;
 
   return (
@@ -103,7 +94,7 @@ export function GoblinPage({ me, mine, xp, level, onPurchased, onRefresh }: {
               icon={<Icon.Spark className="h-5 w-5" />}
               title="Mining speed"
               current={`Mine speed: ${mine.speedGop} GOP/h`}
-              next={nextSpeed !== null && nextSpeedPrice !== null ? { label: `${nextSpeed} GOP/h`, price: nextSpeedPrice } : null}
+              view={me.upgrades.speed}
               balance={balance}
               busy={busy === "speed"}
               onBuy={() => buy("speed")}
@@ -112,12 +103,12 @@ export function GoblinPage({ me, mine, xp, level, onPurchased, onRefresh }: {
               icon={<Icon.Shield className="h-5 w-5" />}
               title="Daily capacity"
               current={`Daily cap: ${fmt(mine.dailyLimit)} GOP`}
-              next={nextLimit !== null && nextLimitPrice !== null ? { label: `${fmt(nextLimit)} GOP/day`, price: nextLimitPrice } : null}
+              view={me.upgrades.limit}
               balance={balance}
               busy={busy === "limit"}
               onBuy={() => buy("limit")}
             />
-            <p className="px-1 text-[11px] text-white/35">Upgrades burn your GOP — that&apos;s how the coin keeps its value. Prices grow with every tier.</p>
+            <p className="px-1 text-[11px] text-white/35">Upgrades burn your GOP — that&apos;s how the coin keeps its value. Raise capacity first: it unlocks the next speed tier.</p>
           </div>
         </>
       )}
@@ -189,22 +180,28 @@ export function GoblinPage({ me, mine, xp, level, onPurchased, onRefresh }: {
   );
 }
 
-function UpgradeCard({ icon, title, current, next, balance, busy, onBuy }: {
+function UpgradeCard({ icon, title, current, view, balance, busy, onBuy }: {
   icon: React.ReactNode; title: string; current: string;
-  next: { label: string; price: number } | null; balance: number; busy: boolean; onBuy: () => void;
+  view: UpgradeView; balance: number; busy: boolean; onBuy: () => void;
 }) {
-  const affordable = next ? balance >= next.price : false;
+  const affordable = view.price !== null ? balance >= view.price : false;
+  const locked = !view.purchasable && view.price !== null;
   return (
     <div className="card flex items-center gap-3 rounded-3xl p-4">
       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gold-500/15 text-gold-300">{icon}</div>
       <div className="min-w-0 flex-1">
         <div className="text-[15px] font-extrabold">{title}</div>
         <div className="text-xs text-white/55">{current}</div>
-        {next && <div className="mt-0.5 text-xs font-bold text-goblin">Next: {next.label} · <span className="text-gold-300">{fmt(next.price)} GOP</span></div>}
+        {view.nextValue !== null && view.price !== null ? (
+          <div className="mt-0.5 text-xs font-bold text-goblin">
+            Next: {view.kind === "speed" ? `${view.nextValue} GOP/h` : `${fmt(view.nextValue)} GOP/day`} · <span className="text-gold-300">{fmt(view.price)} GOP</span>
+          </div>
+        ) : null}
+        {locked && view.lockedReason && <div className="mt-0.5 text-[11px] font-semibold text-amber-300">🔒 {view.lockedReason}</div>}
       </div>
-      {next ? (
-        <button onClick={onBuy} disabled={busy || !affordable} className="btn-gold shrink-0 rounded-2xl px-3.5 py-2.5 text-sm font-extrabold disabled:opacity-40">
-          {busy ? "…" : affordable ? "Upgrade" : "Need GOP"}
+      {view.price !== null && view.nextValue !== null ? (
+        <button onClick={onBuy} disabled={busy || !affordable || locked} className="btn-gold shrink-0 rounded-2xl px-3.5 py-2.5 text-sm font-extrabold disabled:opacity-40">
+          {busy ? "…" : affordable && !locked ? "Upgrade" : locked ? "Locked" : "Need GOP"}
         </button>
       ) : (
         <span className="shrink-0 rounded-2xl bg-goblin/15 px-3 py-1.5 text-xs font-extrabold text-goblin">MAX</span>

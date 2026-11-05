@@ -78,7 +78,8 @@ try {
   ok("second migrate is a no-op", /up to date/.test(out2), (out2.split("\n").filter(Boolean).pop() ?? "").slice(0, 80));
 
   // ---------- Part 2: backup/restore round-trip via vitest ----------
-  run("npx", ["vitest", "run", "tests/integration.test.ts"], {
+  // Dedicated config: the default vitest.config.ts excludes integration tests.
+  run("npx", ["vitest", "run", "tests/integration.test.ts", "--config", "vitest.integration.config.ts"], {
     env: { ...process.env, DATABASE_URL: url },
     stdio: "inherit",
   });

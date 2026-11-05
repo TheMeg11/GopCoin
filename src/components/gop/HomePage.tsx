@@ -40,9 +40,18 @@ export function HomePage({ me, view, checkin, busy, goFriends, goGoblin }: {
 
   const on = mine.on && !paused;
   const balanceShown = view.balanceMilli / 1000;
+  const quotaResetIn = countdown(new Date(mine.resetAt).getTime() - now);
+  const fresh = me.user.checkins === 0;
 
   return (
     <div className="page-enter flex flex-col items-center px-4 pb-4">
+      {/* First-run onboarding hint */}
+      {fresh && status === "active" && !paused && (
+        <div className="mt-2 w-full rounded-2xl bg-goblin/10 px-4 py-3 text-center text-xs font-semibold text-goblin ring-1 ring-goblin/25">
+          👋 Welcome! Your goblin mine is already digging — tap the button below to collect your first coins.
+        </div>
+      )}
+
       {/* Balance */}
       <div className="mt-2 flex flex-col items-center">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/45">Your balance</div>
@@ -51,7 +60,7 @@ export function HomePage({ me, view, checkin, busy, goFriends, goGoblin }: {
           <span className="gold-text text-[44px] font-black leading-none tabular-nums" aria-live="polite">{fmtGop(balanceShown)}</span>
         </div>
         <div className="mt-1 text-sm font-bold text-goblin" aria-live="polite">
-          {on && !mine.quotaFull ? `⛏ +${fmtGop(view.pendingGopLive)} GOP ready to collect` : on ? "Daily quota full — mine paused" : mine.shutDown ? "Mine is off" : ""}
+          {on && !mine.quotaFull ? `⛏ +${fmtGop(view.pendingGopLive)} GOP ready to collect` : on ? "Daily quota full — resets at 00:00 UTC" : mine.shutDown ? "Mine is off" : ""}
         </div>
         <button onClick={goGoblin} className="btn-ghost mt-3 flex items-center gap-2 rounded-full py-1 pl-1 pr-3 text-xs font-bold">
           <span className="rounded-full bg-gold-500/20 px-2 py-0.5 text-gold-300">Lv {view.level}</span>
@@ -60,7 +69,8 @@ export function HomePage({ me, view, checkin, busy, goFriends, goGoblin }: {
         </button>
       </div>
 
-      {/* Mine */}
+      {/* Mine logo — intentionally left completely clean. No timer, no text overlay:
+          status and countdowns live on the dedicated elements below. */}
       <div className="coin-wrap relative my-5 flex aspect-square w-[min(74vw,330px)] items-center justify-center">
         <div className={`coin-glow absolute inset-[-8%] rounded-full ${on ? "" : "opacity-20"}`} />
         <div
@@ -74,26 +84,6 @@ export function HomePage({ me, view, checkin, busy, goFriends, goGoblin }: {
             draggable={false}
             className={`pointer-events-none h-full w-full select-none drop-shadow-[0_18px_40px_rgba(245,184,61,0.35)] ${on ? "coin-idle" : ""}`}
           />
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-            {on ? (
-              <>
-                <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/75">Mine running</div>
-                <div className="gold-text text-3xl font-black tabular-nums drop-shadow">{countdown(view.shutdownInMsLive ?? 0)}</div>
-                <div className="text-[11px] font-semibold text-white/65">until shutdown</div>
-              </>
-            ) : status === "banned" ? (
-              <div className="rounded-3xl bg-forest-950/80 px-5 py-4 text-sm font-bold text-red-300 ring-1 ring-white/10">This account is banned.</div>
-            ) : status === "suspended" ? (
-              <div className="rounded-3xl bg-forest-950/80 px-5 py-4 text-sm font-bold text-amber-300 ring-1 ring-white/10">Earning is temporarily suspended.</div>
-            ) : paused ? (
-              <div className="max-w-[200px] rounded-3xl bg-forest-950/80 px-5 py-4 text-sm font-bold text-amber-300 ring-1 ring-white/10">{me.announcement.maintenance ? me.announcement.maintenanceMessage : "Mining is paused right now."}</div>
-            ) : (
-              <div className="rounded-3xl bg-forest-950/80 px-5 py-4 ring-1 ring-white/10">
-                <div className="text-base font-extrabold text-amber-300">💤 Mine shut down</div>
-                <div className="mt-1 max-w-[190px] text-xs text-white/65">You missed the {me.rules.shutdownHours}h check-in. Check in below to restart production!</div>
-              </div>
-            )}
-          </div>
         </div>
         {collectFx && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -102,15 +92,53 @@ export function HomePage({ me, view, checkin, busy, goFriends, goGoblin }: {
         )}
       </div>
 
-      {/* Check-in button */}
-      <button
-        onClick={doCheckin}
-        disabled={!canCheckin}
-        className="btn-gold flex w-full items-center justify-center gap-2 rounded-3xl py-4.5 text-lg font-black shadow-[0_10px_30px_-8px_rgba(245,184,61,0.7)] disabled:opacity-40"
-      >
-        {busy ? "Collecting…" : on ? `⛏ CHECK IN · collect ${fmtGop(view.pendingGopLive)} GOP` : "⛏ CHECK IN & RESTART MINE"}
-      </button>
-      <div className="mt-1.5 text-[11px] text-white/40">Check in at least every {me.rules.shutdownHours}h or the mine shuts down</div>
+      {/* Mine status line (never on top of the logo) */}
+      <div className="mt-[-14px] flex flex-wrap items-center justify-center gap-2 text-center">
+        {on && me.rules.shutdownHours > 0 && view.shutdownInMsLive !== null && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-forest-800 px-3 py-1.5 text-xs font-bold ring-1 ring-white/10">
+            <Icon.Clock className="h-3.5 w-3.5 text-gold-300" />
+            <span className="text-white/60">shuts down in</span>
+            <span className="gold-text tabular-nums">{countdown(view.shutdownInMsLive)}</span>
+          </span>
+        )}
+        {on ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-goblin/10 px-3 py-1.5 text-xs font-bold text-goblin ring-1 ring-goblin/25">
+            ⛏ {mine.speedGop} GOP/h · mine running {me.rules.shutdownHours === 0 ? "24/7" : ""}
+          </span>
+        ) : status === "banned" ? (
+          <span className="rounded-full bg-red-500/15 px-3 py-1.5 text-xs font-bold text-red-300 ring-1 ring-red-400/30">This account is banned.</span>
+        ) : status === "suspended" ? (
+          <span className="rounded-full bg-amber-500/15 px-3 py-1.5 text-xs font-bold text-amber-300 ring-1 ring-amber-400/30">Earning is temporarily suspended.</span>
+        ) : paused ? (
+          <span className="max-w-[280px] rounded-full bg-amber-500/15 px-3 py-1.5 text-xs font-bold text-amber-300 ring-1 ring-amber-400/30">{me.announcement.maintenance ? me.announcement.maintenanceMessage : "Mining is paused right now."}</span>
+        ) : (
+          <span className="rounded-full bg-amber-500/15 px-3 py-1.5 text-xs font-bold text-amber-300 ring-1 ring-amber-400/30">💤 Mine shut down — collect below to restart it</span>
+        )}
+      </div>
+
+      {/* Collect button — the countdown lives here as its own chip, never over the logo */}
+      <div className="mt-4 w-full">
+        <button
+          onClick={doCheckin}
+          disabled={!canCheckin}
+          className="btn-gold flex w-full items-center justify-between gap-3 rounded-3xl py-4 pl-5 pr-3 text-lg font-black shadow-[0_10px_30px_-8px_rgba(245,184,61,0.7)] disabled:opacity-40"
+        >
+          <span className="truncate">{busy ? "Collecting…" : "⛏ COLLECT"}</span>
+          <span className="flex shrink-0 flex-col items-end leading-tight">
+            {on && !mine.quotaFull && (
+              <span className="text-base font-black text-forest-950">+{fmtGop(view.pendingGopLive)} GOP</span>
+            )}
+            <span className="inline-flex items-center gap-1 rounded-full bg-forest-950/20 px-2 py-0.5 text-[10px] font-bold text-forest-950/90 tabular-nums">
+              <Icon.Clock className="h-3 w-3" /> resets in {quotaResetIn}
+            </span>
+          </span>
+        </button>
+      </div>
+      <div className="mt-1.5 text-center text-[11px] text-white/40">
+        {me.rules.shutdownHours === 0
+          ? "Your mine digs 24/7 — collect any time. The daily quota resets at 00:00 UTC."
+          : `Check in at least every ${me.rules.shutdownHours}h or the mine shuts down`}
+      </div>
 
       {/* Daily capacity */}
       <div className="card mt-3 w-full rounded-3xl p-4">
@@ -126,7 +154,7 @@ export function HomePage({ me, view, checkin, busy, goFriends, goGoblin }: {
             <Icon.Clock className="h-4 w-4" />
             <div>
               <div>Quota resets in</div>
-              <div className="font-bold tabular-nums text-white/85">{countdown(new Date(mine.resetAt).getTime() - now)}</div>
+              <div className="font-bold tabular-nums text-white/85">{quotaResetIn}</div>
             </div>
           </div>
         </div>

@@ -5,6 +5,7 @@ import { getConfig, type GameConfig } from "@/lib/config";
 import { ApiError } from "@/lib/http";
 import { creditCoins, grantXp, type Tx } from "@/lib/ledger";
 import { levelProgress, nextStage, stageForLevel } from "@/lib/progression";
+import { upgradeView } from "@/lib/shop";
 import { nextUtcReset, utcDay } from "@/lib/time";
 import { tgApi } from "@/lib/telegram";
 import { displayName, effectiveStatus, publicProfile } from "@/lib/users";
@@ -61,14 +62,16 @@ export function dailyLimitMilli(cfg: GameConfig, tier: number): number {
 }
 
 /**
- * Pure accrual math. Production accrues only while the mine is ON (checked in within
- * shutdownHours) and stops at the deadline — missed hours are never credited retroactively.
- * Production spanning UTC midnight is credited against the settle day (strictly ≤ the split
- * accounting, so it can never be exploited for extra coins).
+ * Pure accrual math. Production accrues while the mine is ON. With
+ * `shutdownHours = 0` the mine runs 24/7 and production only stops at the daily
+ * cap; otherwise it also stops at the check-in deadline — missed hours are never
+ * credited retroactively. Production spanning UTC midnight is credited against
+ * the settle day (strictly ≤ the split accounting, so it can never be exploited
+ * for extra coins).
  */
 export function accrualPreview(u: User, cfg: GameConfig, now: Date, dayOverride?: string) {
-  const shutdownMs = cfg.mine.shutdownHours * HOUR_MS;
-  const deadline = u.mineLastActiveAt.getTime() + shutdownMs;
+  const alwaysOn = cfg.mine.shutdownHours <= 0;
+  const deadline = alwaysOn ? Number.POSITIVE_INFINITY : u.mineLastActiveAt.getTime() + cfg.mine.shutdownHours * HOUR_MS;
   const on = now.getTime() < deadline;
   const effectiveEnd = Math.min(now.getTime(), deadline);
   const settled = u.lastSettledAt.getTime();
@@ -87,6 +90,7 @@ export function buildMineState(u: User, cfg: GameConfig, now = new Date()): Mine
   const limitMilli = dailyLimitMilli(cfg, u.mineLimitTier);
   const minedToday = p.minedToday + p.pendingMilli; // production already counted into the pending pot
   const remainingToday = Math.max(0, limitMilli - minedToday);
+  const alwaysOn = cfg.mine.shutdownHours <= 0;
   return {
     on: p.on,
     shutDown: !p.on,
@@ -97,8 +101,8 @@ export function buildMineState(u: User, cfg: GameConfig, now = new Date()): Mine
     quotaFull: remainingToday <= 0,
     pendingMilli: p.pendingMilli,
     pendingGop: Math.round(p.pendingMilli) / MILLI,
-    shutdownInMs: p.on ? Math.max(0, p.deadline - now.getTime()) : null,
-    shutdownAt: p.on ? new Date(p.deadline).toISOString() : null,
+    shutdownInMs: p.on && !alwaysOn ? Math.max(0, p.deadline - now.getTime()) : null,
+    shutdownAt: p.on && !alwaysOn ? new Date(p.deadline).toISOString() : null,
     resetAt: nextUtcReset(now).toISOString(),
     checkins: u.collectedCount,
     speedTier: u.mineSpeedTier,
@@ -109,6 +113,12 @@ export function buildMineState(u: User, cfg: GameConfig, now = new Date()): Mine
 }
 
 type Activation = { referralId: number; inviterTelegramId: number; inviterName: string; inviteeName: string; inviterReward: number; inviteeReward: number };
+
+/** XP cadence: at most one XP grant per bucket (default 6h) — check-in spam grants no XP.
+ * Exported for tests. */
+export function checkinXpBucket(now: Date, hours = 6): number {
+  return Math.floor(now.getTime() / (hours * HOUR_MS));
+}
 
 /**
  * Atomically activate a pending referral exactly once. The conditional UPDATE (status='pending')
@@ -148,7 +158,8 @@ export async function activateReferralIfEligible(tx: Tx, invitee: Pick<User, "id
 }
 
 /**
- * Check-in = collect + keep the mine running.
+ * Check-in = collect the mined coins (+ keep the mine running when a shutdown
+ * window is configured). With the default 24/7 mine this is simply "collect".
  * One transaction holding the user's row lock serializes concurrent check-ins from any number
  * of devices; the settle key makes the ledger write idempotent, so double submits are no-ops.
  */
@@ -167,7 +178,8 @@ export async function checkIn(o: { userId: number; now?: Date; cfg?: GameConfig 
     if (status === "banned") throw new ApiError(403, "ACCOUNT_BANNED", "This account has been banned");
     if (status === "suspended") throw new ApiError(403, "EARNING_SUSPENDED", "Earning is temporarily suspended for this account");
 
-    const wasOff = now.getTime() >= u.mineLastActiveAt.getTime() + cfg.mine.shutdownHours * HOUR_MS;
+    const alwaysOn = cfg.mine.shutdownHours <= 0;
+    const wasOff = !alwaysOn && now.getTime() >= u.mineLastActiveAt.getTime() + cfg.mine.shutdownHours * HOUR_MS;
     const p = accrualPreview(u, cfg, now, day);
     const credited = p.pendingMilli;
 
@@ -177,7 +189,14 @@ export async function checkIn(o: { userId: number; now?: Date; cfg?: GameConfig 
     if (credited > 0) {
       await creditCoins(tx, { userId: o.userId, amount: credited, type: "mine", key: settleKey, sourceRef: `day:${day}`, reason: `${(credited / MILLI).toFixed(3)} GOP mined` });
     }
-    await grantXp(tx, { userId: o.userId, amount: cfg.xp.perCheckin, type: "checkin", key: `checkin:${o.userId}:${now.getTime()}`, levels: cfg.progression.levels });
+    // Anti-farm: XP only when something was actually collected, and at most once per
+    // XP bucket — rapid collect spam yields neither coins nor XP.
+    let xpGained = 0;
+    if (credited > 0) {
+      const xpKey = `checkin:${o.userId}:${checkinXpBucket(now)}`;
+      const granted = await grantXp(tx, { userId: o.userId, amount: cfg.xp.perCheckin, type: "checkin", key: xpKey, levels: cfg.progression.levels });
+      xpGained = granted ? cfg.xp.perCheckin : 0;
+    }
 
     const [updated] = await tx
       .update(users)
@@ -206,7 +225,7 @@ export async function checkIn(o: { userId: number; now?: Date; cfg?: GameConfig 
       balanceGop: fresh.balance / MILLI,
       restarted: true,
       wasOff,
-      xpGained: cfg.xp.perCheckin,
+      xpGained,
       level,
       previousLevel,
       referralActivated: holder.activation ? { inviteeReward: holder.activation.inviteeReward } : null,
@@ -265,6 +284,11 @@ export async function buildMeState(user: User, isAdmin: boolean) {
       speedPrices: cfg.mine.speedPrices,
       limitTiers: cfg.mine.limitTiers,
       limitPrices: cfg.mine.limitPrices,
+    },
+    /** Server-authoritative upgrade availability (capacity-first ordering rule). */
+    upgrades: {
+      speed: upgradeView(user, cfg, "speed"),
+      limit: upgradeView(user, cfg, "limit"),
     },
     rules: {
       mineEnabled: cfg.mine.enabled && !cfg.announcement.maintenance,

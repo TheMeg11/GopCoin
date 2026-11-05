@@ -31,6 +31,17 @@ export type PaymentsState = {
   crypto: { enabled: boolean; network: string; assetSymbol: string; address: string; usdPerGop: number; bnbUsd: number; bufferPercent: number; packages: CryptoPackage[] };
 };
 
+export type UpgradeView = {
+  kind: "speed" | "limit";
+  tier: number;
+  maxTier: number;
+  currentValue: number;
+  nextValue: number | null;
+  price: number | null;
+  purchasable: boolean;
+  lockedReason: string | null;
+};
+
 export type MeState = {
   user: {
     id: number; name: string; photoUrl: string | null; level: number; username: string | null;
@@ -45,6 +56,7 @@ export type MeState = {
   };
   mine: MineState;
   mineTierData: { speedTiers: number[]; speedPrices: number[]; limitTiers: number[]; limitPrices: number[] };
+  upgrades: { speed: UpgradeView; limit: UpgradeView };
   rules: {
     mineEnabled: boolean; shutdownHours: number; referralEnabled: boolean; inviterReward: number;
     inviteeReward: number; activationCheckins: number; xpPerCheckin: number; xpPerReferral: number; campaignNote: string; shopEnabled: boolean;
@@ -202,7 +214,7 @@ export function countdown(ms: number) {
 }
 
 export function shareInvite(link: string, reward: number) {
-  const text = `⛏ Dig with me in GOP COIN — the goblin mining game!\n\n🪙 Your mine produces coins 24/7 — you only check in every 6 hours\n⬆️ Upgrade speed & daily capacity\n👥 +${reward} GOP welcome bonus with my link\n\n👉 ${link}`;
+  const text = `⛏ Dig with me in GOP COIN — the goblin mining game!\n\n🪙 Your mine produces coins 24/7 — collect any time\n⬆️ Upgrade your pickaxe speed & daily capacity\n👥 +${reward} GOP welcome bonus with my link\n\n👉 ${link}`;
   const url = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`;
   const w = tgRaw();
   if (w?.openTelegramLink && tg()) w.openTelegramLink(url);
