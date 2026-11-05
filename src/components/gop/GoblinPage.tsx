@@ -59,7 +59,11 @@ export function GoblinPage({ me, mine, xp, level, onPurchased, onRefresh }: {
   };
 
   // Server-authoritative upgrade availability (includes the capacity-first ordering rule).
+  // Defensive fallback for tabs that still hold a pre-v3 /api/me snapshot: treat upgrades as
+  // purchasable (the server still enforces the ordering rule on the actual purchase).
   const balance = me.user.balance;
+  const speedUp = me.upgrades?.speed ?? { kind: "speed" as const, tier: mine.speedTier, maxTier: 6, currentValue: mine.speedGop, nextValue: null, price: null, purchasable: true, lockedReason: null };
+  const limitUp = me.upgrades?.limit ?? { kind: "limit" as const, tier: mine.limitTier, maxTier: 6, currentValue: mine.dailyLimit, nextValue: null, price: null, purchasable: true, lockedReason: null };
 
   return (
     <div className="page-enter px-4 pb-4">
@@ -94,7 +98,7 @@ export function GoblinPage({ me, mine, xp, level, onPurchased, onRefresh }: {
               icon={<Icon.Spark className="h-5 w-5" />}
               title="Mining speed"
               current={`Mine speed: ${mine.speedGop} GOP/h`}
-              view={me.upgrades.speed}
+              view={speedUp}
               balance={balance}
               busy={busy === "speed"}
               onBuy={() => buy("speed")}
@@ -103,7 +107,7 @@ export function GoblinPage({ me, mine, xp, level, onPurchased, onRefresh }: {
               icon={<Icon.Shield className="h-5 w-5" />}
               title="Daily capacity"
               current={`Daily cap: ${fmt(mine.dailyLimit)} GOP`}
-              view={me.upgrades.limit}
+              view={limitUp}
               balance={balance}
               busy={busy === "limit"}
               onBuy={() => buy("limit")}
