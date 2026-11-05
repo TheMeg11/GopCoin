@@ -93,6 +93,25 @@ export function tgRaw(): TgWebApp | null {
   return (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp ?? null;
 }
 
+/**
+ * Best-effort Telegram initData.
+ * Normal path: WebApp.initData. Fallback: the #tgWebAppData=... fragment that
+ * Telegram appends whenever it launches a Mini App — this covers launches where
+ * the bridge object exists but initData was not (yet) populated.
+ * The fragment value is the initData string percent-encoded once, so we decode
+ * exactly once to get the byte-identical string the server knows how to verify.
+ */
+export function tgInitData(): string {
+  const w = tgRaw();
+  if (w?.initData) return w.initData;
+  if (typeof window === "undefined") return "";
+  try {
+    const m = window.location.hash.match(/tgWebAppData=([^&]+)/);
+    if (m) return decodeURIComponent(m[1]);
+  } catch {}
+  return "";
+}
+
 /* ---------- Preferences (sound/haptics) ---------- */
 const PREF_KEY = "gop:prefs";
 export type Prefs = { sound: boolean; haptics: boolean };

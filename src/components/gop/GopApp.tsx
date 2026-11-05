@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiFail, api, getStoredToken, haptic, loadPrefs, setPrefsCache, setToken, tg, tgRaw, type MeState } from "./client";
+import { ApiFail, api, getStoredToken, haptic, loadPrefs, setPrefsCache, setToken, tgInitData, tgRaw, type MeState } from "./client";
 import { useMineEngine } from "./useMineEngine";
 import { HomePage } from "./HomePage";
 import { GoblinPage, LevelUpModal } from "./GoblinPage";
@@ -26,6 +26,18 @@ function initialTab(): Tab {
 }
 
 type Phase = { kind: "loading" } | { kind: "ready" } | { kind: "demo" } | { kind: "outside" } | { kind: "error"; message: string };
+
+/** Resolves with the Telegram initData once the bridge has loaded, or "" if it
+ *  never appears within timeoutMs (caller then treats the launch as outside). */
+async function waitForTelegram(timeoutMs: number, isCancelled: () => boolean): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const d = tgInitData();
+    if (d) return d;
+    if (isCancelled() || Date.now() >= deadline) return "";
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
 
 export function GopApp() {
   return (
@@ -75,20 +87,28 @@ function AppInner() {
   // Boot: Telegram init + authentication
   useEffect(() => {
     setPrefsCache(loadPrefs());
-    const w = tgRaw();
-    try {
-      w?.ready();
-      w?.expand();
-      w?.setHeaderColor?.("#070b09");
-      w?.setBackgroundColor?.("#070b09");
-      w?.setBottomBarColor?.("#070b09");
-      if (w?.isVersionAtLeast?.("7.7")) w.disableVerticalSwipes?.();
-    } catch {}
+    let cancelled = false;
     (async () => {
-      const app = tg();
+      // The Telegram bridge script (telegram-web-app.js) is injected
+      // asynchronously by the Next.js runtime, so window.Telegram may not exist
+      // yet when this effect first runs — especially on slow connections.
+      // Poll for initData (WebApp.initData, or the #tgWebAppData fragment) for a
+      // grace period before concluding the app was opened outside Telegram;
+      // otherwise a genuine Telegram launch can be misclassified as "outside".
+      const initData = await waitForTelegram(10_000, () => cancelled);
+      const w = tgRaw();
       try {
-        if (app) {
-          const r = await api<{ token: string; created: boolean }>("/api/auth/telegram", { json: { initData: app.initData } });
+        w?.ready();
+        w?.expand();
+        w?.setHeaderColor?.("#070b09");
+        w?.setBackgroundColor?.("#070b09");
+        w?.setBottomBarColor?.("#070b09");
+        if (w?.isVersionAtLeast?.("7.7")) w.disableVerticalSwipes?.();
+      } catch {}
+      if (cancelled) return;
+      try {
+        if (initData) {
+          const r = await api<{ token: string; created: boolean }>("/api/auth/telegram", { json: { initData } });
           setToken(r.token);
           const m = await refresh();
           if (m) {
@@ -106,9 +126,10 @@ function AppInner() {
         const d = await api<{ demo: boolean }>("/api/auth/demo");
         setPhase({ kind: d.demo ? "demo" : "outside" });
       } catch (e) {
-        setPhase({ kind: "error", message: e instanceof Error ? e.message : "Could not connect" });
+        if (!cancelled) setPhase({ kind: "error", message: e instanceof Error ? e.message : "Could not connect" });
       }
     })();
+    return () => { cancelled = true; };
   }, [refresh, toast]);
 
   // Periodic authoritative refresh
@@ -237,6 +258,7 @@ function BootScreen({ phase, onDemo }: { phase: Phase; onDemo: (as: "player" | "
         <>
           <p className="mt-3 text-sm text-white/60">Gop Coin is a Telegram Mini App. Open it from Telegram to start mining.</p>
           {bot && <a href={`https://t.me/${bot}`} className="btn-gold mt-6 w-full rounded-2xl py-3.5 font-extrabold">Open in Telegram</a>}
+          <button onClick={() => window.location.reload()} className="btn-ghost mt-2 rounded-2xl px-6 py-2.5 text-sm font-bold">Reload</button>
         </>
       )}
       {phase.kind === "demo" && (
