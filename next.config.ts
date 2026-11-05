@@ -8,6 +8,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // The HTML shell must never be cached. Next serves prerendered pages with
+        // "s-maxage=31536000" by default; Telegram webviews are aggressive caches and a
+        // stale document would reference deleted build chunks (old UI or a blank app).
+        source: "/",
+        headers: [{ key: "Cache-Control", value: "no-store, must-revalidate" }],
+      },
+      {
         source: "/art/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" }],
       },

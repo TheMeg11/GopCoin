@@ -93,7 +93,7 @@ export function HomePage({ me, view, checkin, busy, goFriends, goGoblin }: {
       </div>
 
       {/* Mine status line (never on top of the logo) */}
-      <div className="mt-[-14px] flex flex-wrap items-center justify-center gap-2 text-center">
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-center">
         {on && me.rules.shutdownHours > 0 && view.shutdownInMsLive !== null && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-forest-800 px-3 py-1.5 text-xs font-bold ring-1 ring-white/10">
             <Icon.Clock className="h-3.5 w-3.5 text-gold-300" />
